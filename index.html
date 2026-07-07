@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Escáner - La Cumbre Gastronómica</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    background: #111;
+    color: white;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h2 { margin: 8px 0 4px; color: #e94e1b; text-align: center; }
+  #sub { color: #aaa; margin-bottom: 12px; }
+  #contenedorVideo {
+    position: relative;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+  }
+  video { width: 100%; display: block; }
+  canvas { display: none; }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: bold;
+    text-align: center;
+    padding: 20px;
+    display: none;
+  }
+  .ok { background: rgba(30,126,52,0.92); }
+  .fail { background: rgba(176,42,42,0.92); }
+  #estado { margin-top: 14px; color: #999; font-size: 14px; }
+  #contador { margin-top: 6px; color: #666; font-size: 13px; }
+  #errorCam {
+    margin-top: 20px;
+    background: #b02a2a;
+    padding: 14px;
+    border-radius: 8px;
+    max-width: 400px;
+    text-align: center;
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <h2>La Cumbre Gastronómica</h2>
+  <div id="sub">Escáner de entradas</div>
+
+  <div id="contenedorVideo">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="overlay"></div>
+  </div>
+  <canvas id="canvas"></canvas>
+
+  <div id="estado">Apuntá la cámara al QR de la entrada</div>
+  <div id="contador">Escaneados: 0</div>
+  <div id="errorCam"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <script>
+    // ⚠️ Reemplazá esta URL por la de tu Web App de Apps Script (Validator.gs)
+    const APPS_SCRIPT_URL = 'https://script.google.com/a/macros/fu.do/s/AKfycby06VFfcaH1RF-nWAhlQoMYIMWxLJfD7CmfG_WHJUnpOug3c9X8Cu_eKizoZFVdfm8e/exec';
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const estado = document.getElementById('estado');
+    const contadorEl = document.getElementById('contador');
+    const errorCamEl = document.getElementById('errorCam');
+
+    let contador = 0;
+    let pausado = false;
+    let stream = null;
+
+    function mostrarOverlay(texto, ok) {
+      overlay.textContent = texto;
+      overlay.className = ok ? 'ok' : 'fail';
+      overlay.style.display = 'flex';
+      if (navigator.vibrate) navigator.vibrate(ok ? 120 : [100, 60, 100]);
+      setTimeout(() => {
+        overlay.style.display = 'none';
+        pausado = false;
+      }, 2200);
+    }
+
+    function validarToken(token) {
+      pausado = true;
+      estado.textContent = 'Validando...';
+      fetch(APPS_SCRIPT_URL, {
+        method: 'POST',
+        body: JSON.stringify({ token: token, dispositivo: navigator.userAgent.substring(0, 40) }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          contador++;
+          contadorEl.textContent = 'Escaneados: ' + contador;
+          estado.textContent = 'Apuntá la cámara al QR de la entrada';
+          if (data.valido) {
+            mostrarOverlay('✅ VÁLIDO\n' + (data.nombre || ''), true);
+          } else {
+            mostrarOverlay('❌ ' + data.motivo, false);
+          }
+        })
+        .catch(() => {
+          estado.textContent = 'Apuntá la cámara al QR de la entrada';
+          mostrarOverlay('❌ Error de conexión', false);
+        });
+    }
+
+    function loopEscaneo() {
+      if (!pausado && video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height);
+        if (code && code.data) {
+          validarToken(code.data);
+        }
+      }
+      requestAnimationFrame(loopEscaneo);
+    }
+
+    async function iniciarCamara() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+        video.srcObject = stream;
+        requestAnimationFrame(loopEscaneo);
+      } catch (err) {
+        errorCamEl.textContent = 'No se pudo acceder a la cámara: ' + err.message;
+        errorCamEl.style.display = 'block';
+      }
+    }
+
+    iniciarCamara();
+  </script>
+</body>
+</html>
